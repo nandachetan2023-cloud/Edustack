@@ -1,0 +1,338 @@
+// Fresh, minimal schema scoped to exactly what the 4 EduStack dashboard
+// screens render: course catalog, my-learning, analytics & compliance,
+// and white-label branding settings.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  LEARNER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum EnrollmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  ALL_LEVELS
+}
+
+enum SessionType {
+  LIVE_QA
+  OFFICE_HOURS
+  WORKSHOP
+}
+
+enum ThemeMode {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum ModuleStatus {
+  LOCKED
+  ACTIVE
+  COMPLETED
+}
+
+enum CertificateStatus {
+  ACTIVE
+  UNDER_REVIEW
+}
+
+enum WebhookEvent {
+  USER_CREATED
+  COURSE_PUBLISHED
+}
+
+model Tenant {
+  id                 String   @id @default(cuid())
+  name               String
+  slug               String   @unique
+  domain             String?
+  logoUrl            String?
+  faviconUrl         String?
+  primaryColor       String   @default("#2563eb")
+  radius             String   @default("rounded-lg")
+  fontPairing        String   @default("Plus Jakarta Sans")
+  themeMode          ThemeMode @default(LIGHT)
+  hideWatermark      Boolean  @default(false)
+  customEmailDomain  String?
+  customEmailVerified Boolean @default(false)
+  ssoProvider        String?
+  ssoEnabled         Boolean  @default(false)
+  seatLimit          Int      @default(2000)
+  domainVerifyToken  String?
+  domainVerified     Boolean  @default(false)
+  domainVerifiedAt   DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  departments  Department[]
+  instructors  Instructor[]
+  users        User[]
+  courses      Course[]
+  liveSessions LiveSession[]
+  apiKeys      ApiKey[]
+  webhooks     Webhook[]
+
+  @@map("tenants")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  tenantId   String
+  name       String
+  keyPrefix  String
+  keyHash    String
+  revoked    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model Webhook {
+  id              String       @id @default(cuid())
+  tenantId        String
+  url             String
+  event           WebhookEvent
+  secret          String
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  lastTriggeredAt DateTime?
+  lastStatus      String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}
+
+model Department {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[]
+  courses Course[]
+
+  @@unique([tenantId, name])
+  @@map("departments")
+}
+
+model Instructor {
+  id       String  @id @default(cuid())
+  tenantId String
+  name     String
+  title    String?
+  avatarUrl String?
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  courses Course[]
+
+  @@map("instructors")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  tenantId          String
+  departmentId      String?
+  name              String
+  email             String
+  role              Role     @default(LEARNER)
+  jobTitle          String?
+  avatarUrl         String?
+  weeklyGoalHours   Float    @default(5)
+  weeklyHoursLogged Float    @default(0)
+  streakDays        Int      @default(0)
+  ceuCredits        Float    @default(0)
+  rankPoints        Int      @default(0)
+  isActive          Boolean  @default(true)
+  passwordHash      String?
+  createdAt         DateTime @default(now())
+
+  tenant                   Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department               Department?                @relation(fields: [departmentId], references: [id])
+  enrollments              Enrollment[]
+  certificates             Certificate[]
+  liveSessionRegistrations LiveSessionRegistration[]
+  sessions                 Session[]
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Course {
+  id              String      @id @default(cuid())
+  tenantId        String
+  departmentId    String?
+  instructorId    String?
+  title           String
+  description     String
+  category        String
+  difficulty      Difficulty  @default(INTERMEDIATE)
+  ceuCredits      Float       @default(0)
+  durationHours   Float       @default(1)
+  thumbnailUrl    String?
+  rating          Float       @default(0)
+  ratingCount     Int         @default(0)
+  isCohort        Boolean     @default(false)
+  isMandatory     Boolean     @default(false)
+  isPublished     Boolean     @default(true)
+  passRatePercent Float?
+  dueDate         DateTime?
+  cohortTeamPercent Int?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @default(now()) @updatedAt
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department?  @relation(fields: [departmentId], references: [id])
+  instructor Instructor?  @relation(fields: [instructorId], references: [id])
+  modules    Module[]
+  enrollments Enrollment[]
+  certificates Certificate[]
+
+  @@map("courses")
+}
+
+model Module {
+  id       String @id @default(cuid())
+  courseId String
+  title    String
+  order    Int
+
+  course         Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons        Lesson[]
+  moduleProgress ModuleProgress[]
+
+  @@map("modules")
+}
+
+enum LessonType {
+  VIDEO
+  READING
+  CODE_SANDBOX
+  QUIZ
+}
+
+model Lesson {
+  id              String     @id @default(cuid())
+  moduleId        String
+  title           String
+  order           Int
+  durationMinutes Int        @default(15)
+  type            LessonType @default(VIDEO)
+  content         String?
+  videoUrl        String?
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@map("lessons")
+}
+
+model Enrollment {
+  id               String           @id @default(cuid())
+  userId           String
+  courseId         String
+  progressPercent  Float            @default(0)
+  completedLessons Int              @default(0)
+  totalLessons     Int              @default(0)
+  hoursLogged      Float            @default(0)
+  status           EnrollmentStatus @default(NOT_STARTED)
+  isSaved          Boolean          @default(false)
+  satisfactionScore Float?
+  startedAt        DateTime?
+  lastActiveAt     DateTime?
+  completedAt      DateTime?
+  remindedAt       DateTime?
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  moduleProgress ModuleProgress[]
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+model ModuleProgress {
+  id           String       @id @default(cuid())
+  enrollmentId String
+  moduleId     String
+  status       ModuleStatus @default(LOCKED)
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  module     Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, moduleId])
+  @@map("module_progress")
+}
+
+model Certificate {
+  id           String            @id @default(cuid())
+  userId       String
+  courseId     String?
+  title        String
+  credentialId String            @unique
+  status       CertificateStatus @default(ACTIVE)
+  issuedAt     DateTime          @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id])
+
+  @@map("certificates")
+}
+
+model LiveSession {
+  id               String      @id @default(cuid())
+  tenantId         String
+  title            String
+  type             SessionType @default(LIVE_QA)
+  hostName         String
+  startsAt         DateTime
+
+  tenant        Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  registrations LiveSessionRegistration[]
+
+  @@map("live_sessions")
+}
+
+model LiveSessionRegistration {
+  id            String   @id @default(cuid())
+  liveSessionId String
+  userId        String
+  registeredAt  DateTime @default(now())
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([liveSessionId, userId])
+  @@map("live_session_registrations")
+}
